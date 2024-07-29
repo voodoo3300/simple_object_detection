@@ -198,6 +198,9 @@ class ObjectDetectionApp(QMainWindow):
         self.padding_label.setText(f"Padding: {self.padding}")
 
         resized_image = self.resize_image(self.original_image)
+        scale_x = self.original_image.shape[1] / resized_image.shape[1]
+        scale_y = self.original_image.shape[0] / resized_image.shape[0]
+
         gray = cv2.cvtColor(resized_image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (11, 11), 0)
         edges = cv2.Canny(blurred, self.canny_low, self.canny_high)
@@ -214,15 +217,25 @@ class ObjectDetectionApp(QMainWindow):
 
         for i, contour in enumerate(self.detected_objects):
             x, y, w, h = cv2.boundingRect(contour)
-            x_pad = max(0, x - self.padding)
-            y_pad = max(0, y - self.padding)
-            w_pad = min(self.processed_image.shape[1] - x_pad, w + 2 * self.padding)
-            h_pad = min(self.processed_image.shape[0] - y_pad, h + 2 * self.padding)
+            x_pad = max(0, x - int(self.padding / scale_x))
+            y_pad = max(0, y - int(self.padding / scale_y))
+            w_pad = min(self.processed_image.shape[1] - x_pad, w + 2 * int(self.padding / scale_x))
+            h_pad = min(self.processed_image.shape[0] - y_pad, h + 2 * int(self.padding / scale_y))
             cv2.rectangle(self.processed_image, (x_pad, y_pad), (x_pad + w_pad, y_pad + h_pad), (0, 255, 0), 2)
             cv2.putText(self.processed_image, f"{i + 1}", (x_pad, y_pad - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             self.object_listbox.addItem(f"Objekt {i + 1}")
 
         self.show_image(self.processed_image)
+
+        # Store original image coordinates with padding adjustment
+        self.original_bounding_boxes = []
+        for contour in self.detected_objects:
+            x, y, w, h = cv2.boundingRect(contour)
+            x_orig = max(0, int(x * scale_x) - self.padding)
+            y_orig = max(0, int(y * scale_y) - self.padding)
+            w_orig = min(self.original_image.shape[1] - x_orig, int(w * scale_x) + 2 * self.padding)
+            h_orig = min(self.original_image.shape[0] - y_orig, int(h * scale_y) + 2 * self.padding)
+            self.original_bounding_boxes.append((x_orig, y_orig, w_orig, h_orig))
 
     def resize_image(self, image):
         height, width = image.shape[:2]
@@ -247,18 +260,7 @@ class ObjectDetectionApp(QMainWindow):
         selected_indices = self.object_listbox.selectedIndexes()
         for index in selected_indices:
             i = index.row()
-            contour = self.detected_objects[i]
-            x, y, w, h = cv2.boundingRect(contour)
-
-            x_orig = int(x / self.scale_percent * 100) - self.padding
-            y_orig = int(y / self.scale_percent * 100) - self.padding
-            w_orig = int(w / self.scale_percent * 100) + 2 * self.padding
-            h_orig = int(h / self.scale_percent * 100) + 2 * self.padding
-
-            x_orig = max(0, x_orig)
-            y_orig = max(0, y_orig)
-            w_orig = min(self.original_image.shape[1] - x_orig, w_orig)
-            h_orig = min(self.original_image.shape[0] - y_orig, h_orig)
+            x_orig, y_orig, w_orig, h_orig = self.original_bounding_boxes[i]
 
             cropped = self.original_image[y_orig:y_orig + h_orig, x_orig:x_orig + w_orig]
             output_path = os.path.join('out', f'{os.path.splitext(os.path.basename(self.image_path))[0]}_{i + 1}.png')
